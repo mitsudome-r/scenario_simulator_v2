@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <cstdlib>
 #include <openscenario_interpreter/reader/attribute.hpp>
 #include <openscenario_interpreter/scope.hpp>
 #include <openscenario_interpreter/syntax/rule.hpp>
@@ -26,6 +27,31 @@ auto substitute(const std::string & attribute, const Scope & scope) -> String
 
   auto find_pkg_share = [](auto && package_name, const auto &) {
     return ament_index_cpp::get_package_share_directory(package_name);
+  };
+
+  // NOTE: ROS 2 Launch XML spec — `$(env <name> [<default>])`. Returns the value of the
+  // environment variable, the default if unset, or throws if unset and no default given.
+  auto env = [](auto && arguments, const auto &) -> String {
+    auto strip = [](std::string s) {
+      const auto begin = s.find_first_not_of(" \t");
+      if (begin == std::string::npos) {
+        return std::string();
+      }
+      return s.substr(begin, s.find_last_not_of(" \t") - begin + 1);
+    };
+
+    const auto first_space = arguments.find_first_of(" \t");
+    const auto name = strip(arguments.substr(0, first_space));
+
+    if (const char * const value = std::getenv(name.c_str())) {
+      return value;
+    } else if (first_space != std::string::npos) {
+      return strip(arguments.substr(first_space + 1));
+    } else {
+      throw SyntaxError(
+        "Environment variable ", std::quoted(name),
+        " is not set, and no default value was given to substitution `$(env ", arguments, ")`.");
+    }
   };
 
   auto ros2 = [](auto && arguments, const auto &) {
@@ -62,7 +88,7 @@ auto substitute(const std::string & attribute, const Scope & scope) -> String
     std::string, std::function<std::string(const std::string &, const Scope &)> >
     substitutions{
       {"dirname", dirname},
-      // TODO {"env", env},
+      {"env", env},
       // TODO {"eval", eval},
       // TODO {"exec-in-package", exec_in_package},
       // TODO {"find-exec", find_exec},
